@@ -1,0 +1,31 @@
+# ROS2 / colcon build artifacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.eggs/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude Code（本机配置，不随仓库共享）
+.claude/
+
+# Models & large binary assets
+*.pt
+*.engine
+*.onnx
+config/yolo/model/*.pt
+config/yolo/model/*.engine
+
+# Data / rosbags / results (large)
+*.bag
+data/
+results/

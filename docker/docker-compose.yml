@@ -1,0 +1,40 @@
+# 使用:  docker compose build && docker compose up -d
+# 注意: 需先安装 nvidia-container-toolkit
+#        sudo apt install -y nvidia-container-toolkit && sudo systemctl restart docker
+version: "3.9"
+
+services:
+  semantic_slam:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semantic_vins_fusion:humble
+    container_name: semantic_vins_fusion
+    runtime: nvidia
+    privileged: true               # 访问 USB 相机 / IMU 设备所需
+    network_mode: host             # ROS2 DDS 与 rviz 通信
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - ROS_DOMAIN_ID=0
+    volumes:
+      # 项目源码挂载到容器（与宿主机共享）
+      - ../:/workspace
+      # X11（rviz 可视化）
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-$HOME/.Xauthority}:/root/.Xauthority:rw
+      # 实时设备穿透：容器 /dev 默认是启动时的 tmpfs 快照，
+      # D435i 一旦重枚举(新 USB 地址/新 video 节点号)容器就失联。
+      # 用实时 bind 挂载宿主机 /dev，设备节点随时同步（需配合 privileged）。
+      - /dev:/dev
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

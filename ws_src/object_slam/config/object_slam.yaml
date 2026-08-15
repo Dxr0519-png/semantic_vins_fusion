@@ -1,0 +1,6 @@
+object_slam_node:
+  ros__parameters:
+    min_observations: 3        # 最少观测次数才输出该物体
+    max_missed_frames: 30      # 超过则删除物体
+    dynamic_classes: [0]       # COCO 动态类 id（0=person），docs/05 特征点剔除用
+    publish_tf: false

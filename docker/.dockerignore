@@ -1,0 +1,13 @@
+# 避免把构建产物/大文件打进镜像
+.git
+.idea
+.vscode
+build
+install
+log
+data
+*.bag
+*.pt
+*.engine
+*.onnx
+__pycache__

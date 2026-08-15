@@ -1,0 +1,8 @@
+yolo_seg_node:
+  ros__parameters:
+    model_path: "yolov8n-seg.pt"    # 或导出的 yolov8n-seg.engine（TensorRT）
+    conf_thres: 0.5
+    iou_thres: 0.45
+    mask_scale: 0.5                 # mask 下采样比例（1.0 = 原分辨率）
+    image_topic: "/camera/color/image_raw"
+    publish_vis: true

@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>object_slam</name>
+  <version>0.1.0</version>
+  <description>物体级语义 SLAM 核心：数据关联 + 对偶二次曲面重建 + g2o 联合优化</description>
+  <maintainer email="dxr@example.com">dxr</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>semantic_interfaces</depend>
+  <depend>tf2</depend>
+  <depend>eigen</depend>
+  <!-- g2o 无标准 rosdep key，在 CMakeLists.txt 里 find_package(g2o REQUIRED) -->
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

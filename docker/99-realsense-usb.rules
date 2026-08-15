@@ -1,0 +1,8 @@
+# 禁用 RealSense D435i (VID:8086 PID:0b3a) 的 USB 自动挂起。
+# 避免流传输中设备被挂起/重置导致反复重枚举（换 USB 地址/video 节点号）。
+# 安装（需 sudo）：
+#   sudo cp 99-realsense-usb.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# 立即生效也可：echo on | sudo tee /sys/bus/usb/devices/2-8/power/control
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", ATTR{power/control}="on"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", TEST=="power/autosuspend", ATTR{power/autosuspend}="-1"
