@@ -48,6 +48,11 @@ bool inBorder(const cv::Point2f &pt);
 void reduceVector(vector<cv::Point2f> &v, vector<uchar> status);
 void reduceVector(vector<int> &v, vector<uchar> status);
 
+// docs/05 动态物体特征点剔除：判断特征点像素坐标 (u,v) 是否落在 mask 图内。
+// mask 为 0/1 二值图（可相对原图下采样），img_width/img_height 为特征点所在原图尺寸，
+// 因此先按比例把 (u,v) 映射到 mask 坐标系再查表（mask 需与原图 FOV 对齐）。
+bool isDynamicPixel(double u, double v, const cv::Mat &mask, int img_width, int img_height);
+
 class FeatureTracker
 {
 public:

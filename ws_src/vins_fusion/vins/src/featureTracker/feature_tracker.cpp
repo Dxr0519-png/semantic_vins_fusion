@@ -45,6 +45,18 @@ void reduceVector(vector<int> &v, vector<uchar> status)
     v.resize(j);
 }
 
+bool isDynamicPixel(double u, double v, const cv::Mat &mask, int img_width, int img_height)
+{
+    if (mask.empty() || img_width <= 0 || img_height <= 0)
+        return false;
+    // 特征点像素坐标 -> mask 坐标（mask 可相对原图下采样，如 mask_scale=0.5）
+    int mu = (int)(u * mask.cols / img_width);
+    int mv = (int)(v * mask.rows / img_height);
+    if (mu < 0 || mv < 0 || mu >= mask.cols || mv >= mask.rows)
+        return false;
+    return mask.at<uchar>(mv, mu) > 0;
+}
+
 FeatureTracker::FeatureTracker()
 {
     stereo_cam = 0;

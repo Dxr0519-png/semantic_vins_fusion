@@ -14,6 +14,8 @@ Estimator::Estimator(): f_manager{Rs}
 {
     ROS_INFO("init begins");
     initThreadFlag = false;
+    hasDynMask_ = false;
+    dynMaskTime_ = 0.0;
     clearState();
 }
 
@@ -176,6 +178,30 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
         featureFrame = featureTracker.trackImage(t, _img, _img1);
     //printf("featureTracker time: %f\n", featureTrackerTime.toc());
 
+    // docs/05 动态物体特征点剔除：用 YOLO 动态类 mask 过滤刚跟踪出的特征点。
+    // 取时间上离本帧最近的 mask，超过容差则跳过（YOLO 未跑 / 掉线时自动降级为纯 VINS）。
+    if (DYNAMIC_REMOVE)
+    {
+        cv::Mat dynMask;
+        double dynMaskTime = 0.0;
+        bool hasMask = false;
+        {
+            std::lock_guard<std::mutex> lk(mBuf);
+            if (hasDynMask_)
+            {
+                dynMask = dynMask_;
+                dynMaskTime = dynMaskTime_;
+                hasMask = true;
+            }
+        }
+        if (hasMask && std::fabs(dynMaskTime - t) <= DYNAMIC_MASK_TOLERANCE)
+        {
+            int w1 = _img1.empty() ? _img.cols : _img1.cols;
+            int h1 = _img1.empty() ? _img.rows : _img1.rows;
+            rejectDynamicFeatures(featureFrame, dynMask, _img.cols, _img.rows, w1, h1);
+        }
+    }
+
     if (SHOW_TRACK)
     {
         cv::Mat imgTrack = featureTracker.getTrackImage();
@@ -232,8 +258,57 @@ void Estimator::inputFeature(double t, const map<int, vector<pair<int, Eigen::Ma
         processMeasurements();
 }
 
+void Estimator::inputDynamicMask(double t, const cv::Mat &mask)
+{
+    // 由 vins_node 的 /yolo/detections 回调调用；与 inputImage 之间用 mBuf 保护
+    mBuf.lock();
+    dynMask_ = mask.clone();
+    dynMaskTime_ = t;
+    hasDynMask_ = true;
+    mBuf.unlock();
+}
 
-bool Estimator::getIMUInterval(double t0, double t1, vector<pair<double, Eigen::Vector3d>> &accVector, 
+void Estimator::rejectDynamicFeatures(
+    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame,
+    const cv::Mat &mask, int w0, int h0, int w1, int h1)
+{
+    if (featureFrame.empty() || mask.empty())
+        return;
+
+    // 1) 找出落在动态 mask 内的特征点 id（任一相机观测落入 mask 即判定为动态）
+    set<int> removeIds;
+    for (auto &feat : featureFrame)
+    {
+        for (auto &obs : feat.second)
+        {
+            int cam = obs.first;
+            int w = (cam == 0) ? w0 : w1;
+            int h = (cam == 0) ? h0 : h1;
+            double u = obs.second(3);   // p_u：原始像素坐标
+            double v = obs.second(4);   // p_v
+            if (isDynamicPixel(u, v, mask, w, h))
+            {
+                removeIds.insert(feat.first);
+                break;
+            }
+        }
+    }
+    if (removeIds.empty())
+        return;
+
+    // 2) 从本帧 featureFrame 中剔除（不进入后端优化）
+    for (int id : removeIds)
+        featureFrame.erase(id);
+
+    // 3) 复用前端"外点"通道，同步清理 tracker 状态，避免动态点继续被光流跟踪
+    featureTracker.removeOutliers(removeIds);
+
+    ROS_INFO("dynamic removal: %zu feature(s) removed, %zu left",
+             removeIds.size(), featureFrame.size());
+}
+
+
+bool Estimator::getIMUInterval(double t0, double t1, vector<pair<double, Eigen::Vector3d>> &accVector,
                                 vector<pair<double, Eigen::Vector3d>> &gyrVector)
 {
     if(accBuf.empty())

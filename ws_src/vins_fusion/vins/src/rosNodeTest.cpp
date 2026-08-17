@@ -20,6 +20,9 @@
 #include "estimator/estimator.h"
 #include "estimator/parameters.h"
 #include "utility/visualization.h"
+#include "semantic_interfaces/msg/detection2_d_array.hpp"
+#include "semantic_interfaces/msg/detection2_d.hpp"
+#include "semantic_interfaces/msg/instance_mask.hpp"
 
 Estimator estimator;
 
@@ -237,6 +240,48 @@ void cam_switch_callback(const std_msgs::msg::Bool::SharedPtr switch_msg)
     return;
 }
 
+// docs/05 动态物体特征点剔除：订阅 /yolo/detections，把动态类的实例 mask 合并成一张
+// 0/1 二值图交给 estimator；estimator 在光流跟踪后用它剔除落在动态 mask 内的特征点。
+void yolo_callback(const semantic_interfaces::msg::Detection2DArray::SharedPtr det_msg)
+{
+    if (DYNAMIC_CLASSES.empty())
+        return;
+
+    cv::Mat merged;      // 合并后的动态类二值图（0/255）
+    int ref_w = -1, ref_h = -1;
+    for (const auto &d : det_msg->detections)
+    {
+        bool is_dynamic = false;
+        for (int c : DYNAMIC_CLASSES)
+            if (d.class_id == c) { is_dynamic = true; break; }
+        if (!is_dynamic)
+            continue;
+
+        const auto &m = d.mask;
+        if (m.width <= 0 || m.height <= 0 || (int)m.data.size() != m.width * m.height)
+            continue;
+
+        // 消息里的 mask 是 0/1 行主序 uint8[]，包成 cv::Mat（视图，仅在本次循环内使用）
+        cv::Mat inst(m.height, m.width, CV_8UC1, (void *)m.data.data());
+        if (merged.empty())
+        {
+            ref_w = m.width; ref_h = m.height;
+            merged = cv::Mat(ref_h, ref_w, CV_8UC1, cv::Scalar(0));
+        }
+        if (m.width != ref_w || m.height != ref_h)   // 各实例 mask 尺寸不一致时就近对齐
+            cv::resize(inst, inst, cv::Size(ref_w, ref_h), 0, 0, cv::INTER_NEAREST);
+        cv::Mat dyn = inst > 0;                       // 0/1 -> 0/255
+        cv::bitwise_or(merged, dyn, merged);
+    }
+    if (merged.empty())
+        return;
+
+    double t = det_msg->header.stamp.sec + det_msg->header.stamp.nanosec * (1e-9);
+    estimator.inputDynamicMask(t, merged);
+    ROS_INFO("yolo det: %zu dets, dynamic mask %dx%d", det_msg->detections.size(),
+             merged.cols, merged.rows);
+}
+
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
@@ -281,6 +326,9 @@ int main(int argc, char **argv)
     }
     
     auto sub_restart = n->create_subscription<std_msgs::msg::Bool>("/vins_restart", rclcpp::QoS(rclcpp::KeepLast(100)), restart_callback);
+    // docs/05 动态物体特征点剔除：订阅 YOLO 检测（best_effort 对齐 yolo_seg_node 的 QoS）
+    auto sub_yolo = n->create_subscription<semantic_interfaces::msg::Detection2DArray>(
+        "/yolo/detections", rclcpp::QoS(rclcpp::KeepLast(10)).best_effort(), yolo_callback);
     auto sub_imu_switch = n->create_subscription<std_msgs::msg::Bool>("/vins_imu_switch", rclcpp::QoS(rclcpp::KeepLast(100)), imu_switch_callback);
     auto sub_cam_switch = n->create_subscription<std_msgs::msg::Bool>("/vins_cam_switch", rclcpp::QoS(rclcpp::KeepLast(100)), cam_switch_callback);
 

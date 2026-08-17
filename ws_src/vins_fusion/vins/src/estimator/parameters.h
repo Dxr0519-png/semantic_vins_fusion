@@ -72,6 +72,11 @@ extern double F_THRESHOLD;
 extern int SHOW_TRACK;
 extern int FLOW_BACK;
 
+// docs/05 动态物体特征点剔除
+extern int DYNAMIC_REMOVE;               // 0=关闭（纯 VINS 基线）；1=开启
+extern std::vector<int> DYNAMIC_CLASSES; // COCO 动态类 id（如 0=person）
+extern double DYNAMIC_MASK_TOLERANCE;    // YOLO 检测帧与 VINS 特征帧最大时间差(秒)
+
 void readParameters(std::string config_file);
 
 enum SIZE_PARAMETERIZATION

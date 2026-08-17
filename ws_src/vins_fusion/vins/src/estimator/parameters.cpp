@@ -50,6 +50,10 @@ double F_THRESHOLD;
 int SHOW_TRACK;
 int FLOW_BACK;
 
+int DYNAMIC_REMOVE;
+std::vector<int> DYNAMIC_CLASSES;
+double DYNAMIC_MASK_TOLERANCE;
+
 
 template <typename T>
 T readParam(rclcpp::Node::SharedPtr n, std::string name)
@@ -91,6 +95,21 @@ void readParameters(std::string config_file)
     F_THRESHOLD = fsSettings["F_threshold"];
     SHOW_TRACK = fsSettings["show_track"];
     FLOW_BACK = fsSettings["flow_back"];
+
+    // docs/05 动态物体特征点剔除
+    DYNAMIC_REMOVE = fsSettings["dynamic_remove"];          // 缺省为 0（关闭）
+    DYNAMIC_CLASSES.clear();
+    cv::FileNode dcNode = fsSettings["dynamic_classes"];
+    if (!dcNode.empty() && dcNode.isSeq())
+    {
+        for (auto it = dcNode.begin(); it != dcNode.end(); ++it)
+            DYNAMIC_CLASSES.push_back((int)(*it));
+    }
+    DYNAMIC_MASK_TOLERANCE = fsSettings["dynamic_mask_tolerance"];
+    if (DYNAMIC_MASK_TOLERANCE <= 0.0)
+        DYNAMIC_MASK_TOLERANCE = 0.1;
+    printf("DYNAMIC_REMOVE: %d, dynamic_classes: %zu, tolerance: %.3f\n",
+           DYNAMIC_REMOVE, DYNAMIC_CLASSES.size(), DYNAMIC_MASK_TOLERANCE);
 
     MULTIPLE_THREAD = fsSettings["multiple_thread"];
 

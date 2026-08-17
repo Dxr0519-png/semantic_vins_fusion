@@ -19,6 +19,7 @@ find_package(tf2_ros REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(camera_models REQUIRED)
 find_package(image_transport REQUIRED)
+find_package(semantic_interfaces REQUIRED)   # docs/05 动态特征点剔除：订阅 /yolo/detections
 
 
 find_package(OpenCV REQUIRED)
@@ -58,8 +59,8 @@ target_link_libraries(vins_lib  ${OpenCV_LIBS} ${CERES_LIBRARIES} curl)
 ament_target_dependencies(vins_lib rclcpp rcpputils std_msgs visualization_msgs geometry_msgs nav_msgs tf2 tf2_ros cv_bridge camera_models image_transport)
 
 add_executable(vins_node src/rosNodeTest.cpp)
-ament_target_dependencies(vins_node rclcpp rcpputils std_msgs visualization_msgs geometry_msgs nav_msgs tf2 tf2_ros cv_bridge camera_models image_transport)
-target_link_libraries(vins_node vins_lib) 
+ament_target_dependencies(vins_node rclcpp rcpputils std_msgs visualization_msgs geometry_msgs nav_msgs tf2 tf2_ros cv_bridge camera_models image_transport semantic_interfaces)
+target_link_libraries(vins_node vins_lib)
 
 add_executable(kitti_odom_test src/KITTIOdomTest.cpp)
 ament_target_dependencies(kitti_odom_test rclcpp rcpputils std_msgs visualization_msgs geometry_msgs nav_msgs tf2 tf2_ros cv_bridge camera_models image_transport)

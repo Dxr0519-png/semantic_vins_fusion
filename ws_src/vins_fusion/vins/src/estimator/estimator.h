@@ -53,6 +53,8 @@ class Estimator
     void inputIMU(double t, const Vector3d &linearAcceleration, const Vector3d &angularVelocity);
     void inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame);
     void inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat());
+    // docs/05 动态物体特征点剔除：接收合并后的动态类二值 mask（0/1），供特征点剔除使用
+    void inputDynamicMask(double t, const cv::Mat &mask);
     void processIMU(double t, double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header);
     void processMeasurements();
@@ -76,6 +78,9 @@ class Estimator
     void getPoseInWorldFrame(int index, Eigen::Matrix4d &T);
     void predictPtsInNextFrame();
     void outliersRejection(set<int> &removeIndex);
+    // docs/05: 剔除落在动态类 mask 内的特征点，并同步清理前端 tracker 状态
+    void rejectDynamicFeatures(map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame,
+                               const cv::Mat &mask, int w0, int h0, int w1, int h1);
     double reprojectionError(Matrix3d &Ri, Vector3d &Pi, Matrix3d &rici, Vector3d &tici,
                                      Matrix3d &Rj, Vector3d &Pj, Matrix3d &ricj, Vector3d &ticj, 
                                      double depth, Vector3d &uvi, Vector3d &uvj);
@@ -109,6 +114,10 @@ class Estimator
     std::thread processThread;
 
     FeatureTracker featureTracker;
+    // docs/05: 最新一帧合并后的动态类二值 mask 与其时间戳（跨线程访问用 mBuf 保护）
+    cv::Mat dynMask_;
+    double dynMaskTime_;
+    bool hasDynMask_;
 
     SolverFlag solver_flag;
     MarginalizationFlag  marginalization_flag;
