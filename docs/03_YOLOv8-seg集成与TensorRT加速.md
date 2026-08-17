@@ -59,9 +59,24 @@ d.mask.data = m.flatten().tolist()
 
 ## 5. TensorRT 导出
 
+> **第一次先编译工作空间**。`ros2 run` 只能识别已安装的包，新代码必须先 `colcon build`：
+
+```bash
+cd /workspace
+source /opt/ros/humble/setup.bash
+colcon build --packages-select semantic_interfaces yolo_seg_ros
+```
+
+> **每次新开终端都要 source**，否则 `ros2 run` 报 `Package 'yolo_seg_ros' not found`：
+
+```bash
+source /workspace/install/setup.bash
+```
+
+然后导出 engine（首次会自动下载权重）：
+
 ```bash
 # 容器内（首次会自动下载权重）
-cd /workspace
 ros2 run yolo_seg_ros export_trt --weights yolov8n-seg.pt --imgsz 640 --half
 # 生成 yolov8n-seg.engine
 ```
@@ -81,17 +96,22 @@ ros2 launch yolo_seg_ros yolo_seg.launch.py
 
 # 终端 3：查看输出
 ros2 topic echo /yolo/detections --no-arr   # 看 detections 数量
+ros2 topic echo /yolo/detections --once | grep -E "class_name|score|class_id"  # 看类型/置信度/bbox（一次）
+ros2 topic echo /yolo/detections | grep class_name        # 实时看类型
 ros2 topic hz /yolo/detections              # 看帧率（应 ≥15Hz）
 
 # 可视化：rviz2 订阅 /yolo/vis 或 /camera/color/image_raw
 rviz2
 ```
 
+> 注:`--no-arr` 会把 `detections` 序列也折叠（只显示数量、看不到类型）。要看检测类型用 `grep` 过滤即可——`mask.data` 大数组同样被 grep 滤掉，不会刷屏。
+
 ## 7. 常见问题
 
 | 现象 | 排查 |
 |---|---|
-| 收不到图像 | 确认 RealSense 话题名（`ros2 topic list | grep color`），改 `image_topic` |
+| `Package 'yolo_seg_ros' not found` | 还没编译 / 没 source：先 `colcon build --packages-select semantic_interfaces yolo_seg_ros`，再 `source /workspace/install/setup.bash` |
+| 收不到图像 | 确认 RealSense 话题名（`ros2 topic list \| grep color`），改 `image_topic` |
 | 帧率低（<10Hz） | 用 `.engine` 而非 `.pt`；或换 `yolov8n-seg`；降低输入分辨率 |
 | `import tensorrt` 失败 | Dockerfile 未装 tensorrt，或宿主驱动版本不匹配 |
 | mask 过大占带宽 | 调小 `mask_scale`（0.25） |
