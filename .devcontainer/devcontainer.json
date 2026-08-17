@@ -1,0 +1,50 @@
+{
+  "name": "semantic_vins_fusion",
+  "image": "semantic_vins_fusion:humble",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "mounts": [
+    "source=/dev,target=/dev,type=bind",
+    // 1. 挂载宿主机 Claude / 认证配置，防止容器重启后登录凭证丢失
+    "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind,consistency=cached"
+  ],
+  "runArgs": ["--privileged", "--network=host", "--gpus=all"],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "QT_X11_NO_MITSHM": "1",
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video",
+    "ROS_DOMAIN_ID": "0",
+    // 2. 注入 Claude API Key 与代理（因为使用了 host 网络，直接指向 127.0.0.1 即可）
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "http_proxy": "http://127.0.0.1:7897",
+    "https_proxy": "http://127.0.0.1:7897",
+    "all_proxy": "socks5://127.0.0.1:7897",
+    "no_proxy": "localhost,127.0.0.1"
+  },
+  "postCreateCommand": "bash /workspace/scripts/devcontainer_setup.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-ros.ros",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "ms-python.python",
+        // 3. 自动在容器内安装 Claude 相关的 VS Code 扩展（根据实际使用的插件开启）
+        "saoudrizwan.claude-dev", // Cline (Claude Dev)
+        "Continue.continue"        // Continue 插件
+      ],
+      "settings": {
+        "C_Cpp.default.compileCommands": "/workspace/compile_commands.json",
+        "C_Cpp.intelliSenseEngine": "default",
+        "ros.distribution": "humble",
+        "search.exclude": { "**/build/**": true, "**/install/**": true, "**/log/**": true },
+        "files.watcherExclude": { "**/build/**": true, "**/install/**": true },
+        // 4. 确保 VS Code 容器内环境识别宿主机代理
+        "http.proxy": "http://127.0.0.1:7897",
+        "http.proxyStrictSSL": false
+      }
+    }
+  }
+}

@@ -90,6 +90,8 @@ sudo apt-get install -y --no-install-recommends \
   python3-colcon-common-extensions
 ```
 
+> 📄 本节与 [scripts/setup_jetson.sh](../scripts/setup_jetson.sh) 的 §2「apt 基础依赖」(L56-70) + §3「ROS2 Humble」(L72-102) 对应；一键安装即执行该脚本。
+
 > **用 apt 的 `python3-opencv`，不要用 pip 的 `opencv-python`**：cv_bridge 的 C++ 扩展按 apt `libopencv-dev`（4.5.4）ABI 编译，pip 覆盖到 `/usr/local` 会在 import 时崩。
 
 ### 5.2 g2o 源码编译
@@ -103,6 +105,8 @@ cmake .. -DBUILD_WITH_MARCH_NATIVE=OFF -DG2O_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TY
 make -j$(nproc) && sudo make install
 echo 'export g2o_DIR=/usr/local/lib/cmake/g2o' >> ~/.bashrc
 ```
+
+> 📄 本节与 [scripts/setup_jetson.sh](../scripts/setup_jetson.sh) 的 §4「g2o 源码编译」(L104-123) 对应（同为 `-DBUILD_WITH_MARCH_NATIVE=OFF -DG2O_BUILD_EXAMPLES=OFF`）。
 
 > `-DBUILD_WITH_MARCH_NATIVE=OFF` 必须保留，否则在 Jetson 上产生非法指令。
 
@@ -122,6 +126,8 @@ make -j$(nproc) && sudo make install && sudo ldconfig
 git clone --depth 1 https://github.com/IntelRealSense/realsense-ros.git \
   ws_src/realsense-ros2
 ```
+
+> 📄 本节与 [scripts/setup_jetson.sh](../scripts/setup_jetson.sh) 的 §5「librealsense2 源码」(L125-143) + §6「realsense-ros2」(L145-154) 对应。
 
 > ⚠️ **最高风险项**：`FORCE_RSUSB_BACKEND=true` 走 RSUSB 自定义 UVC 协议（避开 Jetson 内核 UVC 驱动缺陷），但 **D435i 的 IMU metadata / 硬件时间戳**在这条链路上已知易出问题。
 > **务必先单独验证，再接 VINS**：
@@ -155,6 +161,8 @@ sudo -H python3 -m pip install onnxruntime-gpu \
   --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 --extra-index-url https://pypi.org/simple
 sudo -H python3 -m pip install --ignore-installed "numpy<2"   # 兜底锁版
 ```
+
+> 📄 本节与 [scripts/setup_jetson.sh](../scripts/setup_jetson.sh) 的 §7「Python aarch64 wheels」(L156-202) 对应；`--ignore-installed` + `numpy<2` 的覆盖策略与 [docker/Dockerfile](../docker/Dockerfile#L46-L52) 一致。§8「colcon 构建」(L203-216) 对应文档 §6、§9「TRT engine 导出」(L217-229) 对应文档 §7。
 
 | 组件 | 来源 | 说明 |
 |---|---|---|

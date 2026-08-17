@@ -66,6 +66,9 @@ RUN git clone --depth 1 https://github.com/RainerKuemmerle/g2o.git /tmp/g2o && \
     rm -rf /tmp/g2o
 ENV g2o_DIR=/usr/local/lib/cmake/g2o
 
+# ---------- 4b. gdb（CLion Docker 工具链调试需要；单独一层避免级联重建） ----------
+RUN apt-get update && apt-get install -y --no-install-recommends gdb gdbserver
+
 # ---------- 5. 工作空间 ----------
 WORKDIR /workspace
 

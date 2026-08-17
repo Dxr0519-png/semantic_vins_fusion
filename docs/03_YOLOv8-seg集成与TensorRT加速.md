@@ -55,6 +55,8 @@ d.x_min = float(xyxy[i][0] / w)   # 归一化，与分辨率无关
 d.mask.data = m.flatten().tolist()
 ```
 
+> 📄 **源码出处**（文档为节选示意，非逐行一致）：[yolo_seg_node.py](../ws_src/yolo_seg_ros/yolo_seg_ros/yolo_seg_node.py) —— QoS 定义 L45-46、订阅 L48、推理 L56-57、归一化 bbox L79-82、mask 下采样+展平 L85-92。
+
 **设计点**：bbox 用**归一化坐标**，object_slam 反投影时乘以原图尺寸即可，避免分辨率耦合。
 
 ## 5. TensorRT 导出
@@ -80,6 +82,8 @@ source /workspace/install/setup.bash
 ros2 run yolo_seg_ros export_trt --weights yolov8n-seg.pt --imgsz 640 --half
 # 生成 yolov8n-seg.engine
 ```
+
+> 📄 对应入口脚本：[yolo_seg_ros/yolo_seg_ros/export_trt.py](../ws_src/yolo_seg_ros/yolo_seg_ros/export_trt.py)；`model_path` 等参数配置见 [config/yolo.yaml](../ws_src/yolo_seg_ros/config/yolo.yaml)。
 
 然后把 `config/yolo.yaml` 的 `model_path` 改为 engine 路径，重启节点即用 TensorRT 推理。
 

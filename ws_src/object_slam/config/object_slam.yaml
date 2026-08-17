@@ -4,3 +4,4 @@ object_slam_node:
     max_missed_frames: 30      # 超过则删除物体
     dynamic_classes: [0]       # COCO 动态类 id（0=person），docs/05 特征点剔除用
     publish_tf: false
+    time_tolerance: 0.05       # 检测帧与 VINS 关键帧最大时间差(秒)，超差丢弃该帧

@@ -1,5 +1,8 @@
 #include "object_slam/object_slam_node.h"
 
+#include <cmath>
+#include <iterator>
+
 #include <tf2/utils.h>
 
 namespace object_slam {
@@ -9,6 +12,8 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
   this->declare_parameter("min_observations", 3);
   this->declare_parameter("max_missed_frames", 30);
   this->declare_parameter("publish_tf", false);
+  this->declare_parameter("time_tolerance", 0.05);  // 检测帧与关键帧最大时间差(秒)
+  this->get_parameter("time_tolerance", time_tolerance_);
 
   optimizer_ = std::make_unique<QuadricOptimizer>();
 
@@ -36,6 +41,28 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
 
 void ObjectSlamNode::detectionCallback(
     const semantic_interfaces::msg::Detection2DArray::SharedPtr msg) {
+  // 0) 时间同步（docs/04 §3.2 方案 A）：找该检测帧最近的 VINS 关键帧位姿 T_wc
+  rclcpp::Time t_det(msg->header.stamp);
+  auto match = nearestKeyframe(t_det);
+  if (match.pose == nullptr) {
+    // VINS 还没出任何关键帧，拿不到位姿，跳过（避免用错位姿）
+    RCLCPP_DEBUG(this->get_logger(), "VINS 尚无关键帧，跳过该检测帧");
+    return;
+  }
+  const double dt = (t_det - match.time).seconds();
+  if (std::abs(dt) > time_tolerance_) {
+    RCLCPP_DEBUG(this->get_logger(),
+                 "检测帧与关键帧时间差 %.3f s 超容差 %.3f s，跳过",
+                 dt, time_tolerance_);
+    return;
+  }
+  RCLCPP_INFO(this->get_logger(),
+              "检测帧 %.3f s -> 关键帧 %.3f s (dt=%.1f ms)，dets=%zu，pos=(%.2f %.2f %.2f)",
+              t_det.seconds(), match.time.seconds(), dt * 1e3,
+              msg->detections.size(),
+              match.pose->translation().x(), match.pose->translation().y(),
+              match.pose->translation().z());
+
   // 1) 转成 Detection2DView
   std::vector<Detection2DView> dets;
   for (const auto& d : msg->detections) {
@@ -66,7 +93,31 @@ void ObjectSlamNode::detectionCallback(
 
   frame_count_++;
   publishObjectMap();
-  (void)msg;
+}
+
+KeyframeMatch ObjectSlamNode::nearestKeyframe(rclcpp::Time t) const {
+  KeyframeMatch m;
+  if (keyframes_.empty()) return m;
+
+  auto it = keyframes_.lower_bound(t);  // 第一个时间戳 >= t 的关键帧
+  if (it == keyframes_.end()) {         // t 晚于所有关键帧 -> 取最后一帧
+    it = std::prev(it);
+    m.time = it->first;
+    m.pose = &it->second;
+    return m;
+  }
+  if (it == keyframes_.begin()) {       // t 早于所有关键帧 -> 取第一帧
+    m.time = it->first;
+    m.pose = &it->second;
+    return m;
+  }
+  // t 落在两帧之间 -> 取时间更近的一帧
+  auto prev = std::prev(it);
+  const bool take_prev =
+      (t - prev->first).nanoseconds() <= (it->first - t).nanoseconds();
+  m.time = take_prev ? prev->first : it->first;
+  m.pose = take_prev ? &prev->second : &it->second;
+  return m;
 }
 
 void ObjectSlamNode::poseCallback(

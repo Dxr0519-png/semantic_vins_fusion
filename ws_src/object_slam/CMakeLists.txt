@@ -11,6 +11,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)   # object_slam_node.cpp 用到 tf2/utils.h
 find_package(semantic_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(g2o REQUIRED)   # 源码编译安装，见 docs/01 §4
@@ -28,7 +29,7 @@ set(SOURCES
 add_executable(object_slam_node ${SOURCES})
 
 ament_target_dependencies(object_slam_node
-  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs semantic_interfaces)
+  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs tf2 semantic_interfaces)
 
 target_link_libraries(object_slam_node
   g2o_core g2o_stuff g2o_types_slam3d)

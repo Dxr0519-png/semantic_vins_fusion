@@ -29,7 +29,7 @@
 
 ## 4. 关键帧与地图点暴露
 
-物体级模块做"2D 分割 mask 与 3D 点关联"需要 VINS 的关键帧位姿和世界系 3D 点。**此 fork 已内置**对应 publisher（`vins/src/utility/visualization.cpp`）：
+物体级模块做"2D 分割 mask 与 3D 点关联"需要 VINS 的关键帧位姿和世界系 3D 点。**此 fork 已内置**对应 publisher（[vins/src/utility/visualization.cpp](../ws_src/vins_fusion/vins/src/utility/visualization.cpp)：publisher 声明 L22-23、创建 L48-49、`keyframe_pose` 发布 L475、`keyframe_point` 发布 L513）：
 
 | fork 已有 | 类型 | 说明 |
 |---|---|---|
@@ -55,6 +55,8 @@ ros2 run vins vins_node ws_src/vins_fusion/config/realsense_d435i/realsense_ster
 # 可视化（轨迹 + 双目红外 + 彩色）
 rviz2 -d /workspace/ws_src/vins_fusion/config/vins_rviz_d435i.rviz
 ```
+
+> 📄 节点入口：[vins/src/rosNodeTest.cpp](../ws_src/vins_fusion/vins/src/rosNodeTest.cpp)（可执行名 `vins_node`）；VINS 启动配置 [realsense_stereo_imu_config.yaml](../ws_src/vins_fusion/config/realsense_d435i/realsense_stereo_imu_config.yaml)（`imu_topic`/`image0_topic`/`image1_topic`/`output_path` 分别见该文件 L8/L9/L10/L11）；rviz 配置 [vins_rviz_d435i.rviz](../ws_src/vins_fusion/config/vins_rviz_d435i.rviz)。`rs_launch.py` 在容器内被本项目覆盖版替换，见 [docker/realsense/rs_launch.py](../docker/realsense/rs_launch.py)。
 
 **关闭节点**（进程 comm 被内核截断为 15 字符，`realsense` 用截断名）：
 
@@ -107,5 +109,5 @@ VINS-Fusion 假设世界静态，动态物体（人走动）会污染点云、�
 | 收不到图像 | 确认 RealSense 话题名（`infra1/image_rect_raw`），改 VINS yaml 的 `image0_topic` |
 | 轨迹发散 | 检查 `body_T_cam0` 外参是否正确、IMU 噪声是否填反 |
 | 编译报 ceres/Eigen 缺失 | `libceres-dev libeigen3-dev` 已补进 Dockerfile；**旧镜像需手动** `apt-get install -y libceres-dev` |
-| 编译报 `'CUDA' is not a member of 'ceres'` | 此 fork 的 `estimator.cpp` 用了 `ceres::CUDA`，而 apt 版 Ceres（2.0，无 CUDA）没有该枚举；已用 `#ifdef CERES_HAVE_CUDA` 保护，未定义时退化为 `DENSE_SCHUR` |
+| 编译报 `'CUDA' is not a member of 'ceres'` | 此 fork 的 [estimator.cpp](../ws_src/vins_fusion/vins/src/estimator/estimator.cpp#L1171-L1173) 用了 `ceres::CUDA`，而 apt 版 Ceres（2.0，无 CUDA）没有该枚举；已用 `#ifdef CERES_HAVE_CUDA` 保护，未定义时退化为 `DENSE_SCHUR` |
 | 时间不同步导致丢帧 | 见 [`docs/04`](04_传感器时间同步与内外参标定.md) |

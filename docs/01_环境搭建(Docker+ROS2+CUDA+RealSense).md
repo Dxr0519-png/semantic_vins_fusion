@@ -44,6 +44,8 @@ docker compose build
 docker build -t semantic_vins_fusion:humble .
 ```
 
+> 📄 镜像定义见 [docker/Dockerfile](../docker/Dockerfile)（g2o 源码编译 L62-66、`g2o_DIR` L67、numpy 锁 `<2` L46-52、torch 安装 L54-55）与 [docker/docker-compose.yml](../docker/docker-compose.yml)；等价脚本 [scripts/build_docker.sh](../scripts/build_docker.sh)。
+
 首次构建需下载 ROS2 基础镜像与各依赖，约 10~20 分钟。
 
 ## 4. 启动容器
@@ -58,6 +60,8 @@ docker exec -it semantic_vins_fusion bash
 # 或使用脚本
 ../scripts/run_container.sh
 ```
+
+> 📄 对应 [docker/docker-compose.yml](../docker/docker-compose.yml)（`runtime: nvidia` 等 GPU 挂载）+ [docker/entrypoint.sh](../docker/entrypoint.sh)（容器入口）；等价脚本 [scripts/run_container.sh](../scripts/run_container.sh)。
 
 ## 5. 容器内验证
 
@@ -80,6 +84,8 @@ rs-enumerate-devices
 echo $ROS_DISTRO          # humble
 ros2 --help
 ```
+
+> 📄 容器内相关依赖（torch/ultralytics/tensorrt、RealSense、ROS2 包）的安装即 [docker/Dockerfile](../docker/Dockerfile) 的第 1~3 段；RealSense 话题前缀等 launch 改动见 [docker/realsense/rs_launch.py](../docker/realsense/rs_launch.py)。
 
 ## 6. 构建 ROS2 工作空间
 

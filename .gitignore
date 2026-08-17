@@ -14,6 +14,8 @@ dist/
 .idea/
 .vscode/
 *.swp
+# CLion
+cmake-build-*/
 
 # Claude Code（本机配置，不随仓库共享）
 .claude/
@@ -29,3 +31,9 @@ config/yolo/model/*.engine
 *.bag
 data/
 results/
+
+# Dev Containers: postCreateCommand 合并生成的编译索引
+/compile_commands.json
+
+# Scratch / test files
+test.cpp
