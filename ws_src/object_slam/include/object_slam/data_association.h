@@ -29,7 +29,11 @@ struct Association {
 // 物体级数据关联：跨帧维护 track_id（见 docs/06）
 class DataAssociation {
 public:
-  // 把当前帧检测与已有 track 关联（贪心最近邻 + 类别一致）
+  // IoU 门控阈值：只接受 IoU 高于该值的匹配（docs/06 §4 "若 cost < 阈值"）。
+  // cost = 1 - IoU，故等价于 cost < 1 - iou_threshold。
+  void setIoUThreshold(double t) { iou_threshold_ = t; }
+
+  // 把当前帧检测与已有 track 关联（类别一致 + IoU 门控 + 贪心最近邻）
   std::vector<Association> associate(
       const std::vector<Detection2DView>& detections,
       const std::vector<TrackView>& tracks) const;
@@ -40,10 +44,8 @@ public:
   // 匹配代价：类别不一致返回 inf；否则 1 - IoU
   static double matchingCost(const Detection2DView& d, const TrackView& track);
 
-  int nextTrackId() { return next_id_++; }
-
 private:
-  int next_id_ = 0;
+  double iou_threshold_ = 0.3;
 };
 
 }  // namespace object_slam

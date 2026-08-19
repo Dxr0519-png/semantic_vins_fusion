@@ -1,7 +1,24 @@
 object_slam_node:
   ros__parameters:
-    min_observations: 3        # 最少观测次数才输出该物体
-    max_missed_frames: 30      # 超过则删除物体
+    min_observations: 3        # 最少观测次数才输出该物体（docs/06 §5）
+    max_missed_frames: 30      # 超过则删除物体（docs/06 §5/§6 短暂遮挡）
+    iou_threshold: 0.3         # 关联门控：IoU 低于该值的检测不匹配（docs/06 §4）
+    ema_alpha: 0.7             # 检测 bbox EMA 平滑权重（docs/06 §6 分割抖动）
     dynamic_classes: [0]       # COCO 动态类 id（0=person），docs/05 特征点剔除用
     publish_tf: false
     time_tolerance: 0.05       # 检测帧与 VINS 关键帧最大时间差(秒)，超差丢弃该帧
+
+    # 相机内参占位参数：仅用于新 track 的锥初始化（docs/07 §3 的 fromBBoxCone）。
+    # 目前用 D435i 内参近似（见 config/d435i/camera.yaml），
+    # 且暂忽略 color 与 infra 间的外参（docs/04 标定 TODO）；真实值按标定结果替换。
+    camera_fx: 426.0
+    camera_fy: 426.0
+    camera_cx: 320.0
+    camera_cy: 240.0
+    image_width: 640           # YOLO 输入原图宽（realsense color profile 640x480x30）
+    image_height: 480
+
+    # 物体重建 / 联合优化调度（docs/07 §4 / docs/08 §5）
+    refine_interval: 1         # 每 N 帧用多视图 bbox 精化一次椭球（SVD）
+    optimize_interval: 20      # 每 N 帧触发一次 g2o 联合优化（0=关闭）
+    optimize_iters: 30         # g2o Levenberg-Marquardt 迭代次数

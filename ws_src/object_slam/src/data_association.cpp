@@ -35,6 +35,9 @@ std::vector<Association> DataAssociation::associate(
 
   std::vector<bool> det_used(detections.size(), false);
 
+  // cost 阈值 = 1 - IoU 阈值（docs/06 §4）
+  const double cost_threshold = 1.0 - iou_threshold_;
+
   // 贪心最近邻：对每个 track 找代价最小且未占用的检测
   for (const TrackView& track : tracks) {
     int best_idx = -1;
@@ -47,14 +50,15 @@ std::vector<Association> DataAssociation::associate(
         best_idx = static_cast<int>(j);
       }
     }
-    if (best_idx >= 0 && std::isfinite(best_cost)) {
+    // 类别一致（cost 有限）且 IoU 高于门控阈值才算匹配
+    if (best_idx >= 0 && best_cost < cost_threshold) {
       det_used[best_idx] = true;
       result.push_back({track.track_id, best_idx, best_cost});
     }
   }
   return result;
-  // TODO(docs/06 §4): 增强 —— 加入几何线索（3D 点投影落入 mask 比例）、
-  // 马氏距离门控、匈牙利算法全局最优、遮挡/消失处理。
+  // TODO(docs/06 §3.3/§3.4): 增强 —— 加入几何线索（3D 点投影落入 mask 比例）、
+  // 马氏距离门控、匈牙利算法全局最优。
 }
 
 }  // namespace object_slam

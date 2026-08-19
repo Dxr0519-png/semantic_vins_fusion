@@ -8,14 +8,49 @@
 namespace object_slam {
 
 ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
-  // 参数
+  // 参数（默认值与 ws_src/object_slam/config/object_slam.yaml 对齐）
   this->declare_parameter("min_observations", 3);
   this->declare_parameter("max_missed_frames", 30);
+  this->declare_parameter("iou_threshold", 0.3);
+  this->declare_parameter("ema_alpha", 0.7);
   this->declare_parameter("publish_tf", false);
   this->declare_parameter("time_tolerance", 0.05);  // 检测帧与关键帧最大时间差(秒)
+  this->declare_parameter("camera_fx", 426.0);
+  this->declare_parameter("camera_fy", 426.0);
+  this->declare_parameter("camera_cx", 320.0);
+  this->declare_parameter("camera_cy", 240.0);
+  this->declare_parameter("image_width", 640);
+  this->declare_parameter("image_height", 480);
+  this->declare_parameter("refine_interval", 1);
+  this->declare_parameter("optimize_interval", 20);
+  this->declare_parameter("optimize_iters", 30);
   this->get_parameter("time_tolerance", time_tolerance_);
+  this->get_parameter("min_observations", min_observations_);
+  this->get_parameter("max_missed_frames", max_missed_frames_);
+  this->get_parameter("iou_threshold", iou_threshold_);
+  this->get_parameter("ema_alpha", ema_alpha_);
+  this->get_parameter("camera_fx", camera_fx_);
+  this->get_parameter("camera_fy", camera_fy_);
+  this->get_parameter("camera_cx", camera_cx_);
+  this->get_parameter("camera_cy", camera_cy_);
+  this->get_parameter("image_width", image_width_);
+  this->get_parameter("image_height", image_height_);
+  this->get_parameter("refine_interval", refine_interval_);
+  this->get_parameter("optimize_interval", optimize_interval_);
+  this->get_parameter("optimize_iters", optimize_iters_);
 
   optimizer_ = std::make_unique<QuadricOptimizer>();
+
+  // 跟踪器：相机内参用于新 track 锥初始化（docs/07 §3）
+  Eigen::Matrix3d K;
+  K << camera_fx_, 0.0, camera_cx_,
+       0.0, camera_fy_, camera_cy_,
+       0.0, 0.0, 1.0;
+  tracker_ = std::make_unique<Tracker>(K, image_width_, image_height_);
+  tracker_->setMinObservations(min_observations_);
+  tracker_->setMaxMissedFrames(max_missed_frames_);
+  tracker_->setIoUThreshold(iou_threshold_);
+  tracker_->setEmaAlpha(ema_alpha_);
 
   // 订阅：YOLO 检测（Best Effort 对齐相机 QoS）
   auto be = rclcpp::QoS(1).best_effort();
@@ -23,12 +58,14 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
       "/yolo/detections", be,
       std::bind(&ObjectSlamNode::detectionCallback, this, std::placeholders::_1));
 
-  pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "/vins_fusion/keyframe_pose", 10,
+  // 位姿/点来自 VINS vins_node 实际发布的话题（见 vins/src/utility/visualization.cpp 的
+  // registerPub：相对名 keyframe_pose / keyframe_point，解析到 / 命名空间）
+  pose_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+      "/keyframe_pose", 10,
       std::bind(&ObjectSlamNode::poseCallback, this, std::placeholders::_1));
 
   pts_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud>(
-      "/vins_fusion/map_points", 10,
+      "/keyframe_point", 10,
       std::bind(&ObjectSlamNode::pointsCallback, this, std::placeholders::_1));
 
   map_pub_ = this->create_publisher<semantic_interfaces::msg::ObjectMap>(
@@ -73,25 +110,21 @@ void ObjectSlamNode::detectionCallback(
     dets.push_back(v);
   }
 
-  // 2) 关联（复用上一帧 track）
-  auto assoc = associator_.associate(dets, last_tracks_);
+  // 2) 帧级跟踪：关联 + 匹配(EMA) + 新生(锥初始化) + 消亡（docs/06）
+  tracker_->updateFrame(dets, *match.pose);
 
-  // 3) 更新 / 新建物体
-  //    TODO(docs/06 §3): 未匹配检测 -> 新 track（add + 锥初始化，需该帧位姿）
-  //    TODO(docs/07 §4): 匹配检测 -> refineSingleObject 精化椭球
-  //    TODO(docs/08 §3): 定期调用 optimizer_->optimize(...)
+  // 记录该检测帧对应的关键帧位姿（docs/08 联合优化的位姿先验，与观测 frame_id 对齐）
+  const int cur_frame = tracker_->frame() - 1;
+  pose_by_frame_[cur_frame] = *match.pose;
 
-  // 4) 更新 last_tracks_ 供下一帧
-  last_tracks_.clear();
-  for (const auto& d : dets) {
-    TrackView t;
-    t.track_id = 0;  // TODO: 填真实 id
-    t.class_id = d.class_id;
-    t.bbox = d.bbox;
-    last_tracks_.push_back(t);
+  // 3) 物体重建（docs/07 §4）：用多视图 bbox 观测精化各物体椭球
+  if (cur_frame % refine_interval_ == 0) refineObjects();
+
+  // 4) 物体级联合优化（docs/08 §5）：周期性触发 g2o 因子图优化
+  if (optimize_interval_ > 0 && cur_frame % optimize_interval_ == 0) {
+    runJointOptimization();
   }
 
-  frame_count_++;
   publishObjectMap();
 }
 
@@ -121,19 +154,96 @@ KeyframeMatch ObjectSlamNode::nearestKeyframe(rclcpp::Time t) const {
 }
 
 void ObjectSlamNode::poseCallback(
-    const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+    const nav_msgs::msg::Odometry::SharedPtr msg) {
+  // VINS keyframe_pose 是 nav_msgs/Odometry，pose 即世界系相机位姿 T_wc
   Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
-  T.translation() << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
-  Eigen::Quaterniond q(msg->pose.orientation.w, msg->pose.orientation.x,
-                       msg->pose.orientation.y, msg->pose.orientation.z);
+  T.translation() << msg->pose.pose.position.x, msg->pose.pose.position.y,
+      msg->pose.pose.position.z;
+  Eigen::Quaterniond q(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
+                       msg->pose.pose.orientation.y, msg->pose.pose.orientation.z);
   T.linear() = q.toRotationMatrix();
   keyframes_[msg->header.stamp] = T;
 }
 
 void ObjectSlamNode::pointsCallback(
     const sensor_msgs::msg::PointCloud::SharedPtr msg) {
-  // TODO(docs/07 §5): 缓存世界系 3D 点，用于"点落在物体 mask 内"的关联与几何约束。
-  (void)msg;
+  // 缓存 VINS 世界系 3D 点（docs/07 §5 点-物体关联用），只保留最近 kMaxWorldPoints
+  constexpr size_t kMaxWorldPoints = 500;
+  for (const auto& p : msg->points) {
+    world_points_.emplace_back(p.x, p.y, p.z);
+  }
+  if (world_points_.size() > kMaxWorldPoints) {
+    world_points_.erase(world_points_.begin(),
+                        world_points_.begin() + (world_points_.size() - kMaxWorldPoints));
+  }
+}
+
+void ObjectSlamNode::refineObjects() {
+  for (const auto& [oid, obs] : tracker_->observations()) {
+    if (obs.size() < 2) continue;  // 单视图仍退化，保留锥
+    DualQuadric q = optimizer_->refineSingleObject(obs);
+    tracker_->map().update(oid, q);
+  }
+}
+
+void ObjectSlamNode::runJointOptimization() {
+  if (pose_by_frame_.size() < 2) return;
+
+  // 收集所有物体的多视图观测
+  std::vector<ViewObservation> all_obs;
+  for (const auto& [oid, obs] : tracker_->observations()) {
+    all_obs.insert(all_obs.end(), obs.begin(), obs.end());
+  }
+  if (all_obs.empty()) return;
+
+  // 位姿先验（按帧号升序）
+  std::vector<std::pair<int, Eigen::Isometry3d>> priors(pose_by_frame_.begin(),
+                                                        pose_by_frame_.end());
+
+  // 点-物体关联（docs/07 §5）：世界点按 signedDistance 最近邻归属物体
+  std::vector<std::pair<int, Eigen::Vector3d>> object_points;
+  associatePointsToObjects(object_points);
+
+  OptimizationContext ctx;
+  ctx.K << camera_fx_, 0.0, camera_cx_,
+          0.0, camera_fy_, camera_cy_,
+          0.0, 0.0, 1.0;
+  ctx.image_width = image_width_;
+  ctx.image_height = image_height_;
+  ctx.max_iterations = optimize_iters_;
+
+  std::vector<std::pair<int, Eigen::Isometry3d>> refined_poses;
+  optimizer_->optimize(tracker_->map(), all_obs, priors, refined_poses,
+                       object_points, ctx);
+
+  // 回写精化后的位姿（后续联合优化用它做先验）
+  for (const auto& [fid, T] : refined_poses) {
+    if (pose_by_frame_.count(fid)) pose_by_frame_[fid] = T;
+  }
+}
+
+void ObjectSlamNode::associatePointsToObjects(
+    std::vector<std::pair<int, Eigen::Vector3d>>& out) {
+  if (world_points_.empty()) return;
+  const double kAssocThreshold = 0.5;  // 归一化距离 ≤ 0.5 视为属于该物体
+  constexpr int kMaxPointsPerObject = 30;
+  std::map<int, int> per_object_count;
+  for (const Eigen::Vector3d& p : world_points_) {
+    int best_oid = -1;
+    double best_sd = kAssocThreshold;
+    for (const auto& [oid, e] : tracker_->map().entries()) {
+      if (!e.valid) continue;
+      const double sd = e.quadric.signedDistance(p);
+      if (sd < best_sd) {
+        best_sd = sd;
+        best_oid = oid;
+      }
+    }
+    if (best_oid >= 0 && per_object_count[best_oid] < kMaxPointsPerObject) {
+      out.emplace_back(best_oid, p);
+      per_object_count[best_oid]++;
+    }
+  }
 }
 
 void ObjectSlamNode::publishObjectMap() {
@@ -141,7 +251,7 @@ void ObjectSlamNode::publishObjectMap() {
   out.header.stamp = this->now();
   out.header.frame_id = "world";
 
-  for (const auto& [id, e] : map_.entries()) {
+  for (const auto& [id, e] : tracker_->map().entries()) {
     if (!e.valid) continue;
     semantic_interfaces::msg::Object3D o;
     o.id = e.id;
