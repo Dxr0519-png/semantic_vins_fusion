@@ -16,11 +16,13 @@ void Tracker::updateFrame(const std::vector<Detection2DView>& dets,
     t.track_id = id;
     t.class_id = e.class_id;
     t.bbox = e.bbox_smoothed;
+    t.quadric = e.quadric.matrix();  // 马氏门控用椭球（docs/06 §3.4）
     tracks.push_back(t);
   }
 
-  // 2) 关联（docs/06 §3.1 类别一致 + §3.2 IoU 门控 + §4 贪心最近邻）
-  const auto assoc = associator_.associate(dets, tracks);
+  // 2) 关联（docs/06 §3.1 类别一致 + §3.2 IoU 门控 + §3.4 马氏门控 + §4 贪心最近邻）
+  const Eigen::Matrix<double, 3, 4> P = K_ * T_wc.matrix().block<3, 4>(0, 0);
+  const auto assoc = associator_.associate(dets, tracks, P, image_width_, image_height_);
 
   // 3) 匹配的 track：记录观测 + EMA 平滑 bbox（docs/06 §6 分割抖动）
   std::vector<bool> det_matched(dets.size(), false);

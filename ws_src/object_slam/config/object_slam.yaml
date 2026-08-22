@@ -3,6 +3,7 @@ object_slam_node:
     min_observations: 3        # 最少观测次数才输出该物体（docs/06 §5）
     max_missed_frames: 30      # 超过则删除物体（docs/06 §5/§6 短暂遮挡）
     iou_threshold: 0.3         # 关联门控：IoU 低于该值的检测不匹配（docs/06 §4）
+    mahalanobis_chi2_threshold: 5.991   # 马氏门控：d_M² ≥ 该值拒绝匹配（0=关闭，docs/06 §3.4）
     ema_alpha: 0.7             # 检测 bbox EMA 平滑权重（docs/06 §6 分割抖动）
     dynamic_classes: [0]       # COCO 动态类 id（0=person），docs/05 特征点剔除用
     publish_tf: false

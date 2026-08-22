@@ -4,6 +4,10 @@
 #include <cmath>
 #include <limits>
 
+#include <Eigen/Dense>
+
+#include "object_slam/quadric.h"
+
 namespace object_slam {
 
 double DataAssociation::bboxIoU(const Eigen::Vector4d& a, const Eigen::Vector4d& b) {
@@ -29,7 +33,9 @@ double DataAssociation::matchingCost(const Detection2DView& d, const TrackView& 
 
 std::vector<Association> DataAssociation::associate(
     const std::vector<Detection2DView>& detections,
-    const std::vector<TrackView>& tracks) const {
+    const std::vector<TrackView>& tracks,
+    const Eigen::Matrix<double, 3, 4>& P,
+    int image_width, int image_height) const {
   std::vector<Association> result;
   if (tracks.empty() || detections.empty()) return result;
 
@@ -37,18 +43,53 @@ std::vector<Association> DataAssociation::associate(
 
   // cost 阈值 = 1 - IoU 阈值（docs/06 §4）
   const double cost_threshold = 1.0 - iou_threshold_;
+  const bool gate_enabled = chi2_threshold_ > 0.0;
 
-  // 贪心最近邻：对每个 track 找代价最小且未占用的检测
+  // 贪心最近邻：对每个 track 找代价最小、且同时通过 IoU 门控与马氏门控的未占用检测
   for (const TrackView& track : tracks) {
+    // (A) 每 track 预计算一次马氏门控所需投影椭圆（docs/06 §3.4），非每检测
+    bool gate_active = false;
+    Eigen::Vector2d mu_px;      // 预测点：椭球中心投影到当前帧（像素）
+    Eigen::Matrix2d sigma_inv;  // 投影椭圆协方差 Σ 之逆
+    if (gate_enabled && !track.quadric.isZero()) {
+      const DualQuadric q(track.quadric);
+      if (q.isProper()) {  // 排除秩 3 退化种子锥（docs/07 §3，恰有一个特征值=0）
+        Eigen::Vector2d ell_center;
+        Eigen::Matrix2d sigma_px;
+        if (q.projectedEllipse(P, ell_center, sigma_px)) {  // 含 det/finite 守卫，像素系
+          // 预测点 = 椭球 3D 中心投影（docs/06 §3.4 原句）；非球形椭球时与投影椭圆
+          // 中心仅差数像素，重建良好的物体二者基本重合
+          Eigen::Vector3d c, r;
+          Eigen::Matrix3d R;
+          q.decompose(c, r, R);
+          const Eigen::Vector3d ch =
+              P * Eigen::Vector4d(c.x(), c.y(), c.z(), 1.0);
+          if (ch.allFinite() && std::abs(ch(2)) > 1e-12) {
+            mu_px = ch.head<2>() / ch(2);
+            sigma_inv = sigma_px.inverse();
+            if (sigma_inv.allFinite()) gate_active = true;
+          }
+        }
+      }
+    }
+
     int best_idx = -1;
     double best_cost = std::numeric_limits<double>::infinity();
     for (size_t j = 0; j < detections.size(); ++j) {
       if (det_used[j]) continue;
       const double c = matchingCost(detections[j], track);
-      if (c < best_cost) {
-        best_cost = c;
-        best_idx = static_cast<int>(j);
+      if (c >= best_cost) continue;  // 类别不一致（inf）在此也被排除
+      // 马氏距离门控：检测 bbox 中心 vs 椭球中心投影（像素），d_M² < χ² 才可能匹配
+      if (gate_active) {
+        const Eigen::Vector4d& b = detections[j].bbox;
+        const Eigen::Vector2d z(0.5 * (b(0) + b(2)) * image_width,
+                                0.5 * (b(1) + b(3)) * image_height);
+        const Eigen::Vector2d dz = z - mu_px;
+        const double d2 = dz.dot(sigma_inv * dz);
+        if (!(d2 < chi2_threshold_)) continue;  // 硬门控：滤掉几何上不可能的匹配
       }
+      best_cost = c;
+      best_idx = static_cast<int>(j);
     }
     // 类别一致（cost 有限）且 IoU 高于门控阈值才算匹配
     if (best_idx >= 0 && best_cost < cost_threshold) {
@@ -57,8 +98,8 @@ std::vector<Association> DataAssociation::associate(
     }
   }
   return result;
-  // TODO(docs/06 §3.3/§3.4): 增强 —— 加入几何线索（3D 点投影落入 mask 比例）、
-  // 马氏距离门控、匈牙利算法全局最优。
+  // TODO(docs/06 §3.3): 增强 —— 加入几何线索（3D 点投影落入 mask 比例）、
+  // 匈牙利算法全局最优。（马氏距离门控已实现于本函数，见 §3.4）
 }
 
 }  // namespace object_slam

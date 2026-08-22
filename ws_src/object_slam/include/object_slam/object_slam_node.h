@@ -65,6 +65,7 @@ private:
   int min_observations_ = 3;
   int max_missed_frames_ = 30;
   double iou_threshold_ = 0.3;
+  double mahalanobis_chi2_threshold_ = 5.991;  // 马氏门控阈值 d_M²（docs/06 §3.4），≤0 关闭
   double ema_alpha_ = 0.7;
 
   // 优化调度（docs/07 §4 / docs/08 §5）

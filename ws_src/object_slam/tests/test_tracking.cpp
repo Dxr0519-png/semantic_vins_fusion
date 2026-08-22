@@ -1,5 +1,5 @@
 // docs/06 物体级数据关联与跟踪 —— 单元验证。
-// 覆盖：bboxIoU、matchingCost、associate(类别/IoU门控)、id 复用、
+// 覆盖：bboxIoU、matchingCost、associate(类别/IoU/马氏门控)、id 复用、
 //       markObserved/prune 生命周期、Tracker 跨帧 id 稳定 + 遮挡恢复。
 //
 // 纯逻辑测试，不依赖 ROS。构建运行见 docs/06 §7：
@@ -53,7 +53,27 @@ TrackView makeTrack(int id, int class_id, double x1, double y1, double x2, doubl
   t.track_id = id;
   t.class_id = class_id;
   t.bbox = Eigen::Vector4d(x1, y1, x2, y2);
+  // t.quadric 由结构体默认初始化为零矩阵 -> 马氏门控不激活（docs/06 §3.4）
   return t;
+}
+
+// 马氏门控测试场景（docs/06 §3.4）：相机内参 K、位姿 T_wc、投影矩阵 P、世界系椭球。
+// 数字经核算：椭球中心 (0,0,3) 投影到 (320,240) px，投影椭圆 Σ=diag(1604.01, 712.89) px²，
+// 半轴 (40.05, 26.70) px。
+static void setupGateScene(Eigen::Matrix3d& K, Eigen::Isometry3d& T_wc,
+                           Eigen::Matrix<double, 3, 4>& P,
+                           DualQuadric& ellipsoid) {
+  K << 400, 0, 320,
+       0, 400, 240,
+       0, 0, 1;
+  T_wc = Eigen::Isometry3d::Identity();
+  T_wc.linear() << 1, 0, 0,
+                   0, -1, 0,
+                   0, 0, -1;
+  T_wc.translation() << 0, 0, 6;
+  P = K * T_wc.matrix().block<3, 4>(0, 0);
+  ellipsoid = DualQuadric::fromEllipsoid(Eigen::Vector3d(0, 0, 3),
+                                         Eigen::Vector3d(0.3, 0.2, 0.15));
 }
 
 std::set<int> trackIds(const ObjectMap& m) {
@@ -94,6 +114,8 @@ void testMatchingCost() {
 // ========================== §4 associate 门控 ==========================
 void testAssociate() {
   DataAssociation da;  // 默认 IoU 阈值 0.3
+  // 存量用例 track 的 quadric 默认是零矩阵（无有效椭球）-> 马氏门控不激活，P 不被使用
+  const Eigen::Matrix<double, 3, 4> Pid = Eigen::Matrix<double, 3, 4>::Identity();
   const Detection2DView d_a = makeDet(0, 0, 0, 0.3, 0.3);
   const Detection2DView d_b = makeDet(1, 0.6, 0.6, 0.9, 0.9);
 
@@ -101,7 +123,7 @@ void testAssociate() {
   {
     const std::vector<TrackView> tracks = {makeTrack(0, 0, 0, 0, 0.3, 0.3),
                                            makeTrack(1, 1, 0.6, 0.6, 0.9, 0.9)};
-    const auto a = da.associate({d_a, d_b}, tracks);
+    const auto a = da.associate({d_a, d_b}, tracks, Pid, 640, 480);
     CHECK(a.size() == 2u);
     CHECK(a[0].track_id == 0 && a[0].detection_index == 0);
     CHECK(a[1].track_id == 1 && a[1].detection_index == 1);
@@ -110,14 +132,14 @@ void testAssociate() {
   // 类别不一致 -> 无匹配
   {
     const std::vector<TrackView> tracks = {makeTrack(0, 2, 0, 0, 0.3, 0.3)};
-    CHECK(da.associate({d_a}, tracks).empty());
+    CHECK(da.associate({d_a}, tracks, Pid, 640, 480).empty());
   }
 
   // IoU 低于阈值(0.3) -> 无匹配：检测 {0.8,0,1.8,1} 与 track {0,0,1,1} IoU≈0.111
   {
     const TrackView t = makeTrack(0, 0, 0, 0, 1, 1);
     const Detection2DView d = makeDet(0, 0.8, 0, 1.8, 1);
-    CHECK(da.associate({d}, {t}).empty());
+    CHECK(da.associate({d}, {t}, Pid, 640, 480).empty());
   }
 
   // 调低阈值后同上场景 -> 匹配成功
@@ -126,7 +148,7 @@ void testAssociate() {
     loose.setIoUThreshold(0.05);
     const TrackView t = makeTrack(0, 0, 0, 0, 1, 1);
     const Detection2DView d = makeDet(0, 0.8, 0, 1.8, 1);
-    const auto a = loose.associate({d}, {t});
+    const auto a = loose.associate({d}, {t}, Pid, 640, 480);
     CHECK(a.size() == 1u && a[0].track_id == 0);
   }
 
@@ -134,10 +156,107 @@ void testAssociate() {
   {
     const std::vector<TrackView> tracks = {makeTrack(0, 0, 0, 0, 1, 1),
                                            makeTrack(1, 0, 0, 0, 0.2, 0.2)};
-    const auto a = da.associate({makeDet(0, 0, 0, 1, 1)}, tracks);
+    const auto a = da.associate({makeDet(0, 0, 0, 1, 1)}, tracks, Pid, 640, 480);
     CHECK(a.size() == 1u && a[0].track_id == 0);  // 只有 track0 匹配成功
   }
   std::cout << "  [ok] associate (门控/类别/贪心)\n";
+}
+
+// ================== docs/06 §3.4 锥 -> 椭圆提取（纯数学） ==================
+void testEllipseFromConic() {
+  // 已知椭圆：(u-100)²/400 + (v-50)²/100 = 1，即 center=(100,50)，Σ=diag(400,100)。
+  // 齐次锥 C（任意尺度，C(2,2) 未归一化）：Σ⁻¹=diag(1/400,1/100)，cᵀΣ⁻¹c-1=49。
+  Eigen::Matrix3d C;
+  C << 1.0 / 400, 0.0, -(100.0 / 400),
+       0.0, 1.0 / 100, -(50.0 / 100),
+       -(100.0 / 400), -(50.0 / 100), 49.0;
+  Eigen::Vector2d center;
+  Eigen::Matrix2d cov;
+  CHECK(DualQuadric::ellipseFromConic(C, center, cov));
+  CHECK(near(center.x(), 100.0, 1e-6));
+  CHECK(near(center.y(), 50.0, 1e-6));
+  CHECK(near(cov(0, 0), 400.0, 1e-6));
+  CHECK(near(cov(1, 1), 100.0, 1e-6));
+  CHECK(near(cov(0, 1), 0.0, 1e-6));
+  // 单位马氏性质：边界点 (120,50) 上 (u-μ)ᵀΣ⁻¹(u-μ) = 1
+  const Eigen::Vector2d d(120.0 - 100.0, 50.0 - 50.0);
+  CHECK(near(d.dot(cov.inverse() * d), 1.0, 1e-6));
+
+  // 非椭圆被拒绝：双曲线 / 抛物线（中心在无穷远）/ 虚椭圆 / 点退化
+  Eigen::Matrix3d hyp; hyp << 1, 0, 0,  0, -1, 0,  0, 0, -1;
+  CHECK(!DualQuadric::ellipseFromConic(hyp, center, cov));
+  Eigen::Matrix3d par; par << 1, 0, 0,  0, 0, -0.5,  0, -0.5, 0;
+  CHECK(!DualQuadric::ellipseFromConic(par, center, cov));
+  Eigen::Matrix3d imag; imag << 1, 0, 0,  0, 1, 0,  0, 0, 1;
+  CHECK(!DualQuadric::ellipseFromConic(imag, center, cov));
+  std::cout << "  [ok] ellipseFromConic (中心/Σ/单位马氏/退化拒绝)\n";
+}
+
+// ================= docs/06 §3.4 associate 马氏距离门控 =================
+void testMahalanobisGate() {
+  Eigen::Matrix3d K;
+  Eigen::Isometry3d T_wc;
+  Eigen::Matrix<double, 3, 4> P;
+  DualQuadric ellipsoid;
+  setupGateScene(K, T_wc, P, ellipsoid);
+
+  DataAssociation da;  // 默认 IoU 0.3、马氏 chi2 5.991
+
+  // 自检：椭球为正椭球；投影椭圆中心 (320,240)、Σ 对角元符合核算值
+  CHECK(ellipsoid.isProper());
+  Eigen::Vector2d ell_c;
+  Eigen::Matrix2d sigma_px;
+  CHECK(ellipsoid.projectedEllipse(P, ell_c, sigma_px));
+  CHECK(near(ell_c.x(), 320.0, 1e-6));
+  CHECK(near(ell_c.y(), 240.0, 1e-6));
+  CHECK(near(sigma_px(0, 0), 1604.01, 1e-1));
+  CHECK(near(sigma_px(1, 1), 712.89, 1e-1));
+
+  // B1 同物通过：检测 bbox 中心 = (0.5,0.5) = 投影中心 -> d²≈0，IoU=0.643 >= 0.3
+  {
+    TrackView t = makeTrack(0, 0, 0.43, 0.42, 0.57, 0.58);
+    t.quadric = ellipsoid.matrix();
+    const Detection2DView d = makeDet(0, 0.44, 0.44, 0.56, 0.56);
+    const auto a = da.associate({d}, {t}, P, 640, 480);
+    CHECK(a.size() == 1u && a[0].track_id == 0);
+  }
+
+  // B2 马氏拒绝（关键判别）：track 框全图（IoU=0.33 仍 >= 0.3 通过 IoU 门控），
+  //    但检测中心 (384,156) 相对投影中心 (320,240) 的 d²=12.45 >= 5.991 -> 无匹配。
+  //    调大阈值 / 关闭门控后翻转 -> 证明是马氏在拒绝而非 IoU。
+  {
+    TrackView t = makeTrack(0, 0, 0.00, 0.00, 1.00, 1.00);
+    t.quadric = ellipsoid.matrix();
+    const Detection2DView d = makeDet(0, 0.30, 0.05, 0.90, 0.60);
+    CHECK(da.associate({d}, {t}, P, 640, 480).empty());
+
+    DataAssociation loose;
+    loose.setChi2Threshold(100.0);
+    CHECK(loose.associate({d}, {t}, P, 640, 480).size() == 1u);
+
+    DataAssociation off;
+    off.setChi2Threshold(0.0);  // 关闭门控 -> 纯 IoU
+    CHECK(off.associate({d}, {t}, P, 640, 480).size() == 1u);
+  }
+
+  // B3 零矩阵 quadric（无有效椭球）-> 跳过马氏门控，远检测按 IoU 匹配成功
+  {
+    const TrackView t = makeTrack(0, 0, 0.00, 0.00, 1.00, 1.00);
+    const Detection2DView d = makeDet(0, 0.30, 0.05, 0.90, 0.60);
+    CHECK(da.associate({d}, {t}, P, 640, 480).size() == 1u);
+  }
+
+  // B3' 种子锥 quadric（秩 3 退化）-> isProper()=false -> 跳过马氏门控
+  {
+    const Eigen::Vector4d bbox_px(0.44 * 640, 0.44 * 480, 0.56 * 640, 0.56 * 480);
+    const DualQuadric cone = DualQuadric::fromBBoxCone(bbox_px, P);
+    CHECK(!cone.isProper());
+    TrackView t = makeTrack(0, 0, 0.00, 0.00, 1.00, 1.00);
+    t.quadric = cone.matrix();
+    const Detection2DView d = makeDet(0, 0.30, 0.05, 0.90, 0.60);
+    CHECK(da.associate({d}, {t}, P, 640, 480).size() == 1u);
+  }
+  std::cout << "  [ok] associate 马氏距离门控（docs/06 §3.4）\n";
 }
 
 // ==================== §6 id 复用 + §5 生命周期原语 ====================
@@ -239,6 +358,8 @@ int main() {
   testBboxIoU();
   testMatchingCost();
   testAssociate();
+  testEllipseFromConic();
+  testMahalanobisGate();
   testObjectMap();
   testTrackerStableId();
   std::cout << "全部通过 ✓\n";

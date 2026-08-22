@@ -12,6 +12,7 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
   this->declare_parameter("min_observations", 3);
   this->declare_parameter("max_missed_frames", 30);
   this->declare_parameter("iou_threshold", 0.3);
+  this->declare_parameter("mahalanobis_chi2_threshold", 5.991);  // docs/06 §3.4，≤0 关闭
   this->declare_parameter("ema_alpha", 0.7);
   this->declare_parameter("publish_tf", false);
   this->declare_parameter("time_tolerance", 0.05);  // 检测帧与关键帧最大时间差(秒)
@@ -28,6 +29,7 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
   this->get_parameter("min_observations", min_observations_);
   this->get_parameter("max_missed_frames", max_missed_frames_);
   this->get_parameter("iou_threshold", iou_threshold_);
+  this->get_parameter("mahalanobis_chi2_threshold", mahalanobis_chi2_threshold_);
   this->get_parameter("ema_alpha", ema_alpha_);
   this->get_parameter("camera_fx", camera_fx_);
   this->get_parameter("camera_fy", camera_fy_);
@@ -50,6 +52,7 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
   tracker_->setMinObservations(min_observations_);
   tracker_->setMaxMissedFrames(max_missed_frames_);
   tracker_->setIoUThreshold(iou_threshold_);
+  tracker_->setChi2Threshold(mahalanobis_chi2_threshold_);
   tracker_->setEmaAlpha(ema_alpha_);
 
   // 订阅：YOLO 检测（Best Effort 对齐相机 QoS）

@@ -24,6 +24,7 @@ public:
   void setMinObservations(int n) { min_observations_ = n; }
   void setMaxMissedFrames(int n) { max_missed_frames_ = n; }
   void setIoUThreshold(double t) { associator_.setIoUThreshold(t); }
+  void setChi2Threshold(double t) { associator_.setChi2Threshold(t); }  // 马氏门控（docs/06 §3.4）
   void setEmaAlpha(double a) { ema_alpha_ = a; }
 
   // 处理一帧检测：
