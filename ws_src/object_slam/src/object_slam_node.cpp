@@ -1,5 +1,6 @@
 #include "object_slam/object_slam_node.h"
 
+#include <array>
 #include <cmath>
 #include <iterator>
 
@@ -73,6 +74,8 @@ ObjectSlamNode::ObjectSlamNode() : Node("object_slam_node") {
 
   map_pub_ = this->create_publisher<semantic_interfaces::msg::ObjectMap>(
       "/object_slam/objects", 10);
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "/object_slam/objects_markers", 10);  // rviz 椭球可视化（docs/10 §6）
   traj_pub_ = this->create_publisher<nav_msgs::msg::Path>(
       "/object_slam/trajectory", 10);
 
@@ -276,6 +279,60 @@ void ObjectSlamNode::publishObjectMap() {
     out.objects.push_back(o);
   }
   map_pub_->publish(out);
+  publishObjectMarkers();
+}
+
+void ObjectSlamNode::publishObjectMarkers() {
+  visualization_msgs::msg::MarkerArray markers;
+
+  // 先清掉 rviz 中已消失的旧物体（rviz 不会自动移除缺省的 marker）
+  visualization_msgs::msg::Marker clear;
+  clear.header.frame_id = "world";
+  clear.header.stamp = this->now();
+  clear.ns = "object_slam";
+  clear.action = visualization_msgs::msg::Marker::DELETEALL;
+  markers.markers.push_back(clear);
+
+  // 按 track_id 轮换的固定色板，便于区分多个物体
+  static const std::vector<std::array<float, 3>> kPalette = {
+      {0.0f, 0.8f, 1.0f}, {0.8f, 1.0f, 0.0f}, {1.0f, 0.6f, 0.0f},
+      {1.0f, 0.3f, 0.8f}, {0.9f, 0.9f, 0.9f}, {0.5f, 0.5f, 1.0f}};
+
+  for (const auto& [id, e] : tracker_->map().entries()) {
+    if (!e.valid) continue;
+
+    Eigen::Vector3d center, radii;
+    Eigen::Matrix3d R;
+    e.quadric.decompose(center, radii, R);
+
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "world";
+    m.header.stamp = this->now();
+    m.ns = "object_slam";
+    m.id = id;
+    m.type = visualization_msgs::msg::Marker::SPHERE;
+    m.action = visualization_msgs::msg::Marker::ADD;
+
+    // 椭球：位置=中心，尺寸=2×三轴半径，朝向=二次曲面主轴系
+    m.pose.position.x = center.x();
+    m.pose.position.y = center.y();
+    m.pose.position.z = center.z();
+    Eigen::Quaterniond q(R);
+    m.pose.orientation.x = q.x();
+    m.pose.orientation.y = q.y();
+    m.pose.orientation.z = q.z();
+    m.pose.orientation.w = q.w();
+    m.scale.x = 2.0 * radii.x();
+    m.scale.y = 2.0 * radii.y();
+    m.scale.z = 2.0 * radii.z();
+
+    const auto& c = kPalette[static_cast<size_t>(id) % kPalette.size()];
+    m.color.r = c[0]; m.color.g = c[1]; m.color.b = c[2];
+    m.color.a = 0.4f;  // 半透明：能同时看到背景点云/轨迹
+
+    markers.markers.push_back(m);
+  }
+  marker_pub_->publish(markers);
 }
 
 }  // namespace object_slam

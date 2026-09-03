@@ -5,7 +5,7 @@
 imu: 1
 num_of_cam: 2
 
-imu_topic: "/camera/imu"
+imu_topic: "/camera/imu"   # 定版：原始 IMU（M 校正因温漂失效已弃用，见 docs/17 §3.3）
 image0_topic: "/camera/infra1/image_rect_raw"
 image1_topic: "/camera/infra2/image_rect_raw"
 output_path: "/tmp/vins_output/"   # VINS 不会自动创建该目录,运行前需 mkdir -p /tmp/vins_output
@@ -22,24 +22,26 @@ use_gpu_ceres   : 0
    
 
 # Extrinsic parameter between IMU and Camera.
-estimate_extrinsic: 1   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.
+estimate_extrinsic: 0   # 定版：外参方向修正（kalibr T_ci 求逆后填入，见 docs/17 §3.1）+ 锁定
                         # 1  Have an initial guess about extrinsic parameters. We will optimize around your initial guess.
 
 body_T_cam0: !!opencv-matrix
    rows: 4
    cols: 4
    dt: d
-   data: [ 0., 0., 1., 0.011740,
-           -1., 0., 0., 0.005520,
-           0., -1., 0., -0.005100, 0., 0., 0., 1. ]
+   data: [ 0.99997349, -0.00189446, 0.00703035, -0.00351779,
+           0.00176754, 0.99983614, 0.01801585, 0.00820078,
+           -0.00706333, -0.01800295, 0.99981299, 0.0142749,
+           0., 0., 0., 1. ]
 
 body_T_cam1: !!opencv-matrix
    rows: 4
    cols: 4
    dt: d
-   data: [ 0., 0., 1., 0.011740,
-           -1., 0., 0., -0.044723,
-           0., -1., 0., -0.005100, 0., 0., 0., 1. ]
+   data: [ 0.99997349, -0.00189446, 0.00703035, 0.04672388,
+           0.00176754, 0.99983614, 0.01801585, 0.00828959,
+           -0.00706333, -0.01800295, 0.99981299, 0.01392001,
+           0., 0., 0., 1. ]
 
 #Multiple thread support
 multiple_thread: 1
@@ -53,7 +55,7 @@ show_track: 1           # publish tracking image as topic
 flow_back: 1            # perform forward and backward optical flow to improve feature tracking accuracy
 
 #docs/05 动态物体特征点剔除
-dynamic_remove: 1           # 0=关闭剔除(纯 VINS 基线); 1=开启
+dynamic_remove: 0           # 必须关闭：实测开启+YOLO 运行时剔除路径会段错误（docs/05 集成 bug，待修）
 dynamic_classes: [ 0 ]      # COCO 动态类 id（0=person）；见 docs/05 §4
 dynamic_mask_tolerance: 0.1 # YOLO 检测帧与 VINS 特征帧最大时间差(秒)，超差跳过该帧剔除
 
@@ -63,15 +65,15 @@ max_num_iterations: 8   # max solver itrations, to guarantee real time
 keyframe_parallax: 10.0 # keyframe selection threshold (pixel)
 
 #imu parameters       The more accurate parameters you provide, the better performance
-acc_n: 0.1          # accelerometer measurement noise standard deviation. #0.2   0.04
-gyr_n: 0.01         # gyroscope measurement noise standard deviation.     #0.05  0.004
-acc_w: 0.001         # accelerometer bias random work noise standard deviation.  #0.002
-gyr_w: 0.0001       # gyroscope bias random work noise standard deviation.     #4.0e-5
+acc_n: 0.1          # 宽松值（实测×8）：实测噪声让 VINS 过度信任这颗 IMU 会发散（已验证两次）
+gyr_n: 0.01         # 宽松值
+acc_w: 0.001        # 宽松值
+gyr_w: 0.0001       # 宽松值
 g_norm: 9.805         # gravity magnitude
 
 #unsynchronization parameters
-estimate_td: 1                      # online estimate time offset between camera and imu
-td: 0.00                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+estimate_td: 0                      # 锁定新标定 td
+td: -0.000503                         # 新标定（9/2）：t_imu = t_cam + td
 
 #loop closure parameters
 load_previous_pose_graph: 0        # load and reuse previous pose graph; load from 'pose_graph_save_path'

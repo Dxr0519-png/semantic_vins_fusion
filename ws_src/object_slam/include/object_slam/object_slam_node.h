@@ -10,6 +10,8 @@
 #include <sensor_msgs/msg/point_cloud.hpp>
 #include <semantic_interfaces/msg/detection2_d_array.hpp>
 #include <semantic_interfaces/msg/object_map.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include "object_slam/quadric_optimizer.h"
 #include "object_slam/tracker.h"
@@ -33,6 +35,9 @@ private:
   void pointsCallback(const sensor_msgs::msg::PointCloud::SharedPtr msg);
 
   void publishObjectMap();
+
+  // rviz 椭球可视化：ObjectMap(自定义消息) -> MarkerArray(SPHERE)，rviz 才能直接显示
+  void publishObjectMarkers();
 
   // docs/07 §4：用多视图 bbox 观测精化各物体椭球
   void refineObjects();
@@ -85,6 +90,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud>::SharedPtr pts_sub_;
   rclcpp::Publisher<semantic_interfaces::msg::ObjectMap>::SharedPtr map_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr traj_pub_;
 };
 

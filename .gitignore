@@ -32,6 +32,13 @@ config/yolo/model/*.engine
 data/
 results/
 
+# 标定录包 (rosbag2, SQLite .db3)
+imu_cam/
+imu_static/
+
+# 第三方源码克隆 (自带 .git,按需自行克隆)
+ws_src/realsense-ros2/
+
 # Dev Containers: postCreateCommand 合并生成的编译索引
 /compile_commands.json
 

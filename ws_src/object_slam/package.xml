@@ -15,6 +15,7 @@
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>semantic_interfaces</depend>
+  <depend>visualization_msgs</depend>
   <depend>tf2</depend>
   <depend>eigen</depend>
   <!-- g2o 无标准 rosdep key，在 CMakeLists.txt 里 find_package(g2o REQUIRED) -->

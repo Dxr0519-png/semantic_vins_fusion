@@ -1,6 +1,6 @@
 yolo_seg_node:
   ros__parameters:
-    model_path: "/workspace/yolov8n-seg.engine"    # 绝对路径，避免 launch 时 cwd 不在 /workspace 而找不到
+    model_path: "/home/zc/semantic_ws/semantic_vins_fusion/ws_src/yolo_seg_ros/yolov8n-seg.engine"    # 绝对路径，板载实测 2026-08-22 导出
     conf_thres: 0.25
     iou_thres: 0.45
     mask_scale: 0.5                 # mask 下采样比例（1.0 = 原分辨率）
